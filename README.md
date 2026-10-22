@@ -8,6 +8,8 @@ The underlying idea is that financial markets alternate between periods characte
 
 The ultimate objective is to compare the proposed strategy against a Buy & Hold benchmark through a walk-forward backtesting framework designed to mitigate look-ahead bias and assess historical performance under more realistic information constraints.
 
+To reproduce the analysis, run the notebook cells sequentially, ensuring that the required Python libraries are installed and an active internet connection is available to download historical market data.
+
 ## Project Structure
 
 The notebook is organized into five sections, which are being progressively published following a review of the code and methodology.

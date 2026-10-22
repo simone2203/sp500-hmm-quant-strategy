@@ -30,9 +30,16 @@ The notebook is organized into five sections, which are being progressively publ
 
 ### Sections Under Review and Pending Publication
 
-**3. Hidden Markov Model**
+**3. Hidden Markov Model (HMM)**
 
-Implementation of an HMM to identify market regimes and analyze their statistical characteristics.
+- Preparation and standardization of the input features used by the model.
+- Implementation of a Gaussian Hidden Markov Model with 2 hidden states.
+- Model training and convergence assessment of the Expectation-Maximization (EM) algorithm.
+- Analysis of the transition probability matrix and state persistence probabilities.
+- Identification and visualization of market regimes using the Viterbi algorithm.
+- Statistical analysis of the identified market regimes, with particular emphasis on returns and volatility.
+
+**Methodological Note:** This initial implementation represents a retrospective (*in-sample*) analysis based on the entire historical dataset. Consequently, the identified market regimes cannot be directly interpreted as real-time trading signals. Look-ahead bias will be addressed in the subsequent walk-forward implementation.
 
 **4. Trading Strategy**
 

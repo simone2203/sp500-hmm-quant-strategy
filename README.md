@@ -39,11 +39,22 @@ The notebook is organized into five sections, which are being progressively publ
 
 **Methodological Note:** This initial implementation represents a retrospective (*in-sample*) analysis based on the entire historical dataset. Consequently, the identified market regimes cannot be directly interpreted as real-time trading signals. Look-ahead bias will be addressed in the subsequent walk-forward implementation.
 
+**4. Trading Strategy and Preliminary Backtesting**
+
+- Identification of the "calm" market regime by selecting the hidden state with the highest average return.
+- Assessment of the economic consistency of the classification by verifying that the selected state also exhibits lower average volatility.
+- Development of a long/cash trading strategy: fully invested in SPY during the calm regime and entirely in cash during the alternative regime.
+- Calculation of strategy returns by applying a one-day lag to the trading position (`shift(1)`).
+- Construction and comparison of the equity curves of the strategy and the Buy & Hold benchmark.
+- Performance evaluation using CAGR, Sharpe ratio, and Maximum Drawdown.
+
+**Methodological Note:** This backtest is intended solely as a preliminary analysis. The HMM is trained on the entire historical dataset, introducing look-ahead bias. Applying `shift(1)` prevents the same day's signal from being used to calculate that day's return, but does not eliminate the look-ahead bias arising from in-sample model training.
+
+Furthermore, transaction costs and realistic order execution assumptions are not incorporated. The Sharpe ratio is calculated using logarithmic returns, assuming a zero risk-free rate.
+
+**The results are purely illustrative and should not be interpreted as reliable estimates of the performance of a realistically implementable trading strategy.**
+
 ### Sections Under Review and Pending Publication
-
-**4. Trading Strategy**
-
-Development of a quantitative long/cash trading strategy based on the market regimes identified by the model.
 
 **5. Walk-Forward Backtesting**
 

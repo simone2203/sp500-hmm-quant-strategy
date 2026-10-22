@@ -28,8 +28,6 @@ The notebook is organized into five sections, which are being progressively publ
 - Handling of missing values introduced during feature construction.
 - Descriptive analysis and visualization of the variables used as inputs to the HMM.
 
-### Sections Under Review and Pending Publication
-
 **3. Hidden Markov Model (HMM)**
 
 - Preparation and standardization of the input features used by the model.
@@ -40,6 +38,8 @@ The notebook is organized into five sections, which are being progressively publ
 - Statistical analysis of the identified market regimes, with particular emphasis on returns and volatility.
 
 **Methodological Note:** This initial implementation represents a retrospective (*in-sample*) analysis based on the entire historical dataset. Consequently, the identified market regimes cannot be directly interpreted as real-time trading signals. Look-ahead bias will be addressed in the subsequent walk-forward implementation.
+
+### Sections Under Review and Pending Publication
 
 **4. Trading Strategy**
 
@@ -61,7 +61,7 @@ Evaluation of the trading strategy through periodic HMM retraining and compariso
 
 **Programming language:** Python
 
-**Libraries used in the currently published sections:** NumPy, pandas, Matplotlib, and yfinance.
+**Libraries used in the currently published sections:** NumPy, pandas, Matplotlib, yfinance, and hmmlearn.
 
 The analysis is implemented in Jupyter notebooks, which can also be executed using Google Colab.
 

@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Market Regime Detection Using Hidden Markov Models (HMM) on SPY | Simone Nardi</title>
+  <meta name="description" content="A two-state Gaussian hidden Markov model separates calm and volatile regimes in SPY. A walk-forward backtest with execution lag and transaction costs tests a long/cash strategy against Buy &amp; Hold.">
+  <meta name="author" content="Simone Nardi">
+  <meta name="theme-color" content="#0f1c2f">
+  <link rel="canonical" href="https://simone2203.github.io/sp500-hmm-quant-strategy/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Market Regime Detection Using Hidden Markov Models (HMM) on SPY">
+  <meta property="og:description" content="Two-state Gaussian HMM, long/cash strategy and walk-forward backtest on SPY, compared honestly with Buy &amp; Hold.">
+  <meta property="og:url" content="https://simone2203.github.io/sp500-hmm-quant-strategy/">
+  <meta property="og:image" content="https://simone2203.github.io/sp500-hmm-quant-strategy/assets/img/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/fonts/newsreader-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/archivo-latin-standard-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script defer src="data/site-data.js"></script>
+  <script defer src="assets/js/charts.js"></script>
+  <script defer src="assets/js/main.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<nav class="site-nav" aria-label="Sections">
+  <div class="wrap">
+    <a class="wordmark" href="#top">Simone Nardi <span>HMM regimes on SPY</span></a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">Contents</button>
+    <ul class="nav-links" id="nav-links">
+      <li><a href="#question">Question</a></li>
+      <li><a href="#model">Model</a></li>
+      <li><a href="#walk-forward">Walk-forward</a></li>
+      <li><a href="#results">Results</a></li>
+      <li><a href="#discussion">Discussion</a></li>
+      <li><a href="#code">Code</a></li>
+      <li><a class="nav-github" href="https://github.com/simone2203/sp500-hmm-quant-strategy" rel="noopener">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main id="main">
+
+<!-- ======================================================= HERO -->
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-head">
+      <div class="hero-main">
+        <h1>Market Regime Detection Using Hidden Markov Models (HMM) on SPY</h1>
+        <div class="actions">
+          <a class="btn btn-primary" href="#results">Explore the results</a>
+          <a class="btn btn-quiet" href="https://github.com/simone2203/sp500-hmm-quant-strategy/blob/main/sp500_hmm_quant_strategy.ipynb" rel="noopener">Notebook</a>
+          <a class="btn btn-quiet" href="https://github.com/simone2203/sp500-hmm-quant-strategy" rel="noopener">Repository</a>
+        </div>
+      </div>
+      <p class="lede hero-lede">A two-state Gaussian hidden Markov model separates calm and volatile phases of the US equity market. A walk-forward backtest then tests whether those regimes still help a long/cash strategy when the model can only use information available at the time.</p>
+    </div>
+
+    <figure class="figure hero-figure" aria-labelledby="fig1-cap">
+      <ul class="legend fig-legend" aria-label="Legend">
+        <li><span class="swatch bg-calm" aria-hidden="true"></span>Calm regime</li>
+        <li><span class="swatch bg-volatile" aria-hidden="true"></span>Volatile regime</li>
+        <li><span class="swatch hatch" aria-hidden="true"></span>Warm-up, no model yet</li>
+      </ul>
+      <div class="chart" id="chart-hero" tabindex="0" role="group" aria-roledescription="interactive chart"
+           aria-label="Regime decoded for each trading day from October 2017 to September 2026, by the in-sample model and by the walk-forward models. Use the left and right arrow keys to move through the days.">
+        <noscript><p class="chart-empty">This interactive figure needs JavaScript. Running the notebook reproduces the same regimes.</p></noscript>
+      </div>
+      <figcaption class="figcaption" id="fig1-cap"><b>Figure 1.</b> The regime decoded by the HMM for each trading day, 23 Oct 2017 to 22 Sep 2026. The upper band comes from a model fitted once on the whole history, so it uses hindsight. The lower band comes from models refitted every 21 trading days on past data only; it starts after a three-year warm-up. <span class="hint-pointer">Hover or tap the chart, or focus it and use the arrow keys, to read any day.</span></figcaption>
+    </figure>
+
+    <section class="abstract" aria-labelledby="abstract-title">
+      <div>
+        <h2 class="abstract-label" id="abstract-title">Abstract</h2>
+        <p>The model is a two-state Gaussian HMM fitted on SPY’s daily log returns and 20-day volatility. Traded as a long/cash rule, with monthly refits on past data only, execution one day after each signal and a 0.10% cost per trade, it reduced annualized volatility from 16.6% to 9.8% and maximum drawdown from −24.5% to −14.7% relative to Buy &amp; Hold between October 2020 and September 2026. It also earned about half the annual return, and its Sharpe ratio stayed below Buy &amp; Hold’s. The in-sample backtest’s Sharpe ratio of 1.11 did not survive the removal of look-ahead bias.</p>
+      </div>
+      <table class="compare">
+        <caption>Common window, 26 Oct 2020 to 22 Sep 2026. Walk-forward figures are net of transaction costs. Full comparison in <a href="#results">section 4</a>.</caption>
+        <thead>
+          <tr>
+            <th scope="col"><span class="visually-hidden">Metric</span></th>
+            <th scope="col"><span class="key"><span class="line-key c-market" aria-hidden="true"></span><span>Buy &amp; Hold</span></span></th>
+            <th scope="col"><span class="key"><span class="line-key c-calm" aria-hidden="true"></span><span>Walk-forward shift(2)</span></span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">CAGR</th><td>16.2%</td><td class="strong">8.5%</td></tr>
+          <tr><th scope="row">Annualized volatility</th><td>16.6%</td><td class="strong">9.8%</td></tr>
+          <tr><th scope="row">Maximum drawdown</th><td>−24.5%</td><td class="strong">−14.7%</td></tr>
+          <tr><th scope="row">Sharpe ratio (r<sub>f</sub> = 0)</th><td>0.90</td><td class="strong">0.83</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+</header>
+
+<!-- ======================================================= 1 QUESTION -->
+<section class="section" id="question" aria-labelledby="question-title">
+  <div class="wrap">
+    <header class="section-head">
+      <span class="section-num">1</span>
+      <h2 id="question-title">The research question</h2>
+    </header>
+    <div class="prose">
+      <div class="row">
+        <div class="main">
+          <p>Equity markets do not behave the same way all the time. Long stretches of steady gains with small daily moves alternate with shorter, turbulent phases in which volatility jumps and returns become erratic. An investor who cares about risk would like to know which phase the market is in, but the phase itself is never observed: only prices are.</p>
+          <p>A hidden Markov model formalizes exactly this situation. It assumes an unobserved state that follows a Markov chain, so that tomorrow’s regime depends only on today’s, and lets each state generate the observed data from its own probability distribution. Fitting the model estimates those distributions and how persistent each regime is; decoding then assigns the most likely regime to every day.</p>
+        </div>
+        <aside class="note" aria-label="Note on terminology">
+          <span class="note-title">Why “hidden”</span>
+          <p>The regime is a latent variable. The model never sees a label such as “crisis” or “calm”; it infers two groups of days whose returns and volatility look statistically alike, and it is up to the analyst to interpret them.</p>
+        </aside>
+      </div>
+
+      <p class="question">Can regimes identified by a two-state Gaussian HMM support a long/cash strategy on SPY that reduces risk relative to Buy &amp; Hold, once the model is restricted to the information available at the time of each decision?</p>
+
+      <div class="row">
+        <div class="main">
+          <h3>Approach</h3>
+          <ol class="steps">
+            <li><strong>Data.</strong> Daily adjusted closes of SPY from Yahoo Finance, September 2017 to September 2026.</li>
+            <li><strong>Features.</strong> Daily log return and 20-day rolling volatility, standardized before fitting.</li>
+            <li><strong>Model.</strong> A two-state Gaussian HMM with full covariance, fitted by expectation–maximization with hmmlearn.</li>
+            <li><strong>Rule.</strong> 100% SPY in the calm regime, 100% cash in the volatile one. No leverage, no short positions.</li>
+            <li><strong>Validation.</strong> An in-sample backtest first, then a walk-forward backtest with monthly refits, two execution assumptions and transaction costs.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================= 2 DATA & MODEL -->
+<section class="section" id="model" aria-labelledby="model-title">
+  <div class="wrap">
+    <header class="section-head">
+      <span class="section-num">2</span>
+      <h2 id="model-title">Data, features and the model</h2>
+    </header>
+    <div class="prose">
+      <div class="row">
+        <div class="main">
+          <p>SPY, the exchange-traded fund that tracks the S&amp;P 500, offers a long and liquid history and reflects the broad market rather than a single stock. The notebook uses its adjusted close, which incorporates dividends and splits, so that the regimes reflect market behavior rather than technical artifacts. The download window is fixed, nine years ending on 22 September 2026, to keep the analysis reproducible: 2,260 trading days, with no missing values.</p>
+          <p>Each day <i class="var">t</i> is described by two features. The log return compares consecutive closes and is additive over time; the 20-day rolling volatility is the standard deviation of the last 20 log returns. The first 20 days have no complete window and are dropped, which leaves 2,240 observations, from 23 October 2017 to 22 September 2026.</p>
+        </div>
+        <aside class="note" aria-label="Feature definitions">
+          <p class="eq"><i>r<sub>t</sub></i> = ln(<i>P<sub>t</sub></i> / <i>P</i><sub><i>t</i>−1</sub>)</p>
+          <p class="eq"><i>σ<sub>t</sub></i> = sd(<i>r</i><sub><i>t</i>−19</sub>, …, <i>r<sub>t</sub></i>)</p>
+          <p>Both features are standardized (z-scores) before fitting. Their raw variances are of the order of 10<sup>−4</sup> and 10<sup>−5</sup>, small enough for hmmlearn’s default covariance regularization to distort the estimates. The in-sample model uses full-sample means and standard deviations; each walk-forward refit uses those of its own training window.</p>
+        </aside>
+      </div>
+
+      <div class="row">
+        <div class="main table-scroll" tabindex="0" role="region" aria-label="Table 1, scrollable">
+          <table class="data-table">
+            <caption><b>Table 1.</b> Daily features after cleaning, 2,240 observations.</caption>
+            <thead>
+              <tr><th scope="col">Feature</th><th scope="col">Mean</th><th scope="col">Std. dev.</th><th scope="col">Min</th><th scope="col">Max</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Log return</th><td>0.00055</td><td>0.01189</td><td>−0.11589</td><td>0.09986</td></tr>
+              <tr><th scope="row">20-day volatility</th><td>0.00995</td><td>0.00660</td><td>0.00241</td><td>0.05917</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="main">
+          <h3>A two-state Gaussian hidden Markov model</h3>
+          <p>The model has two hidden states. In each state the standardized feature vector <i class="var">x<sub>t</sub></i> follows a bivariate normal distribution with its own mean and a full covariance matrix, so the model can also capture how the two features move together. The parameters are estimated with the expectation–maximization algorithm (hmmlearn’s <code>GaussianHMM</code>, fixed random seed), and the most likely sequence of states is decoded with the Viterbi algorithm.</p>
+          <p>The number of states is fixed at two for simplicity, not because two was shown to be optimal. Fitted once on the whole history, EM converged after 16 iterations, with a final log-likelihood of −4,279.63.</p>
+        </div>
+        <aside class="note" aria-label="Model equations">
+          <p class="eq"><i>P</i>(<i>S<sub>t</sub></i> = <i>j</i> | <i>S</i><sub><i>t</i>−1</sub> = <i>i</i>) = <i>a<sub>ij</sub></i></p>
+          <p class="eq"><i>x<sub>t</sub></i> | <i>S<sub>t</sub></i> = <i>k</i> ~ N(<i>μ<sub>k</sub></i>, <i>Σ<sub>k</sub></i>)</p>
+          <p>Two states, each with a mean vector <i>μ<sub>k</sub></i> and a 2×2 covariance matrix <i>Σ<sub>k</sub></i>, plus the transition probabilities <i>a<sub>ij</sub></i>.</p>
+        </aside>
+      </div>
+
+      <div class="pair">
+        <figure class="figure" aria-labelledby="fig2-cap">
+          <svg class="diagram" viewBox="0 0 520 290" role="img" aria-labelledby="fig2-title fig2-desc">
+            <title id="fig2-title">Structure of a hidden Markov model</title>
+            <desc id="fig2-desc">A chain of hidden regimes S t minus 1, S t, S t plus 1, each pointing to the next one, and each emitting the observed feature vector of the same day.</desc>
+            <defs>
+              <marker id="arrow-ink" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#99a2ae"></path>
+              </marker>
+            </defs>
+            <g class="d-small" font-family="Archivo, sans-serif" font-size="13" fill="#99a2ae" text-anchor="middle">
+              <text x="260" y="22">Hidden regime</text>
+              <text x="260" y="284">Observed features</text>
+            </g>
+            <g stroke="#99a2ae" stroke-width="1.4" fill="none">
+              <path d="M28,90 L82,90" stroke-dasharray="3 4" marker-end="url(#arrow-ink)"></path>
+              <path d="M150,90 L226,90" marker-end="url(#arrow-ink)"></path>
+              <path d="M294,90 L370,90" marker-end="url(#arrow-ink)"></path>
+              <path d="M438,90 L492,90" stroke-dasharray="3 4" marker-end="url(#arrow-ink)"></path>
+              <path d="M116,124 L116,174" marker-end="url(#arrow-ink)"></path>
+              <path d="M260,124 L260,174" marker-end="url(#arrow-ink)"></path>
+              <path d="M404,124 L404,174" marker-end="url(#arrow-ink)"></path>
+            </g>
+            <g fill="#0f1c2f" stroke="#c1c8d0" stroke-width="1.4">
+              <circle cx="116" cy="90" r="32"></circle>
+              <circle cx="260" cy="90" r="32"></circle>
+              <circle cx="404" cy="90" r="32"></circle>
+            </g>
+            <g fill="#253449" stroke="#c1c8d0" stroke-width="1.4">
+              <circle cx="116" cy="210" r="32"></circle>
+              <circle cx="260" cy="210" r="32"></circle>
+              <circle cx="404" cy="210" r="32"></circle>
+            </g>
+            <g font-family="Newsreader, Georgia, serif" font-style="italic" font-size="21" fill="#f3f0ea" text-anchor="middle">
+              <text x="116" y="97">S<tspan font-size="14" dy="5">t−1</tspan></text>
+              <text x="260" y="97">S<tspan font-size="14" dy="5">t</tspan></text>
+              <text x="404" y="97">S<tspan font-size="14" dy="5">t+1</tspan></text>
+              <text x="116" y="217">x<tspan font-size="14" dy="5">t−1</tspan></text>
+              <text x="260" y="217">x<tspan font-size="14" dy="5">t</tspan></text>
+              <text x="404" y="217">x<tspan font-size="14" dy="5">t+1</tspan></text>
+            </g>
+            <g class="d-math" font-family="Newsreader, Georgia, serif" font-style="italic" font-size="16" fill="#c1c8d0" text-anchor="middle">
+              <text x="188" y="79">a<tspan font-size="11" dy="4">ij</tspan></text>
+              <text x="332" y="79">a<tspan font-size="11" dy="4">ij</tspan></text>
+            </g>
+          </svg>
+          <figcaption class="figcaption" id="fig2-cap"><b>Figure 2.</b> Structure of the model. The regime <i>S<sub>t</sub></i> follows a first-order Markov chain with transition probabilities <i>a<sub>ij</sub></i>; the observed features <i>x<sub>t</sub></i> = (<i>r<sub>t</sub></i>, <i>σ<sub>t</sub></i>), standardized, depend only on that day’s regime. Shaded nodes are observed.</figcaption>
+        </figure>
+
+        <figure class="figure" aria-labelledby="fig3-cap">
+          <svg class="diagram" viewBox="0 0 520 290" role="img" aria-labelledby="fig3-title fig3-desc">
+            <title id="fig3-title">Estimated transition probabilities</title>
+            <desc id="fig3-desc">Calm stays calm with probability 0.9908 and turns volatile with probability 0.0092. Volatile stays volatile with probability 0.9808 and turns calm with probability 0.0192.</desc>
+            <defs>
+              <marker id="arrow-soft" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#c1c8d0"></path>
+              </marker>
+            </defs>
+            <g transform="translate(0,14)"><g fill="none" stroke="#c1c8d0" stroke-linecap="round">
+              <path d="M 105.5 115.9 C 78.0 10.0, 202.0 10.0, 174.5 115.9" stroke-width="3.2" marker-end="url(#arrow-soft)"></path>
+              <path d="M 345.5 115.9 C 318.0 10.0, 442.0 10.0, 414.5 115.9" stroke-width="3" marker-end="url(#arrow-soft)"></path>
+              <path d="M 189.4 133.7 C 227.4 107.7, 292.6 107.7, 330.6 133.7" stroke-width="1.1" marker-end="url(#arrow-soft)"></path>
+              <path d="M 330.6 186.3 C 292.6 212.3, 227.4 212.3, 189.4 186.3" stroke-width="1.4" marker-end="url(#arrow-soft)"></path>
+            </g>
+            <circle cx="140" cy="160" r="56" fill="rgba(55,188,170,0.14)" stroke="#37bcaa" stroke-width="2"></circle>
+            <circle cx="380" cy="160" r="56" fill="rgba(230,140,44,0.14)" stroke="#e68c2c" stroke-width="2"></circle>
+            <g class="d-labels" font-family="Archivo, sans-serif" text-anchor="middle">
+              <text x="140" y="162" font-size="16" font-weight="600" fill="#f3f0ea">Calm</text>
+              <text x="140" y="181" class="d-small" font-size="12" fill="#c1c8d0">state 0</text>
+              <text x="380" y="162" font-size="16" font-weight="600" fill="#f3f0ea">Volatile</text>
+              <text x="380" y="181" class="d-small" font-size="12" fill="#c1c8d0">state 1</text>
+              <g class="d-prob" font-size="14" fill="#f3f0ea" style="font-variant-numeric: tabular-nums">
+                <text x="140" y="22">0.9908</text>
+                <text x="380" y="22">0.9808</text>
+                <text x="260" y="110">0.0092</text>
+                <text x="260" y="226">0.0192</text>
+              </g>
+            </g>
+          </g></svg>
+          <figcaption class="figcaption" id="fig3-cap"><b>Figure 3.</b> Transition probabilities estimated in-sample. Thicker arrows mean higher probabilities. Both regimes are highly persistent: the expected duration of a regime, 1 / (1 − <i>a<sub>kk</sub></i>), is about 109 trading days for calm and about 52 for volatile.</figcaption>
+        </figure>
+      </div>
+
+      <div class="row">
+        <div class="main">
+          <h3>What the in-sample model found</h3>
+          <p>The labels 0 and 1 that the algorithm assigns are arbitrary, so each state is read from the days assigned to it. The calm regime is defined as the state with the higher mean return, and the notebook then checks that it also has the lower mean volatility: here the two criteria agree. Calm days are more frequent, rise more on average and swing far less.</p>
+        </div>
+        <aside class="note" aria-label="Transition matrix">
+          <span class="note-title">Transition matrix</span>
+          <table class="matrix-table">
+            <caption class="visually-hidden">Estimated transition matrix: rows are today’s regime, columns are tomorrow’s</caption>
+            <thead><tr><th scope="col"><span class="visually-hidden">From</span></th><th scope="col">to calm</th><th scope="col">to volatile</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">calm</th><td class="diag">0.99085</td><td>0.00915</td></tr>
+              <tr><th scope="row">volatile</th><td>0.01918</td><td class="diag">0.98082</td></tr>
+            </tbody>
+          </table>
+          <p style="margin-top:1rem">The chain’s long-run share of calm days, <i>a</i><sub>10</sub> / (<i>a</i><sub>01</sub> + <i>a</i><sub>10</sub>), is 67.7%, close to the 68.2% of days actually decoded as calm.</p>
+        </aside>
+      </div>
+
+      <div class="row">
+        <div class="main table-scroll" tabindex="0" role="region" aria-label="Table 2, scrollable">
+          <table class="data-table stack" id="regime-table">
+            <caption><b>Table 2.</b> Days assigned to each regime by the in-sample model, with the statistics of their features (daily values).</caption>
+            <thead>
+              <tr><th scope="col">Regime</th><th scope="col">Days</th><th scope="col">Share</th><th scope="col">Mean log return</th><th scope="col">Std. dev. of log return</th><th scope="col">Mean 20-day volatility</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row"><span class="th-key"><span class="swatch bg-calm" aria-hidden="true"></span>Calm</span></th><td data-label="Days">1,527</td><td data-label="Share">68.2%</td><td data-label="Mean log return">0.00073</td><td data-label="Std. dev. of log return">0.00710</td><td data-label="Mean 20-day volatility">0.00697</td></tr>
+              <tr><th scope="row"><span class="th-key"><span class="swatch bg-volatile" aria-hidden="true"></span>Volatile</span></th><td data-label="Days">713</td><td data-label="Share">31.8%</td><td data-label="Mean log return">0.00017</td><td data-label="Std. dev. of log return">0.01834</td><td data-label="Mean 20-day volatility">0.01635</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <figure class="figure" aria-labelledby="fig4-cap">
+        <ul class="legend fig-legend" aria-label="Legend">
+          <li><span class="line-key c-calm" aria-hidden="true"></span>Calm state</li>
+          <li><span class="line-key c-volatile" aria-hidden="true"></span>Volatile state</li>
+          <li><span class="line-key c-ink" aria-hidden="true"></span>One standard deviation</li>
+          <li><span class="line-key dashed c-ink" aria-hidden="true"></span>Two standard deviations</li>
+          <li><span class="dot-key" aria-hidden="true"></span>State mean</li>
+        </ul>
+        <div class="chart" id="chart-states" role="img"
+             aria-label="The fitted distribution of each state in the plane of daily log return and 20-day volatility, drawn as one- and two-standard-deviation ellipses. The calm ellipse is small and sits at low volatility; the volatile ellipse is centered at a much higher volatility and is far wider in both directions.">
+          <noscript><p class="chart-empty">This figure needs JavaScript.</p></noscript>
+        </div>
+        <figcaption class="figcaption" id="fig4-cap"><b>Figure 4.</b> What the two Gaussian states look like. The ellipses are the one- and two-standard-deviation contours of each state’s fitted distribution, mapped back from standardized units to daily log return and 20-day volatility; the dot marks the state’s mean. The calm state is compact and sits at low volatility; the volatile state is centered at a much higher volatility and spreads far more widely in both directions.</figcaption>
+      </figure>
+
+      <div class="callout" role="note">
+        <span class="callout-title">In-sample means hindsight</span>
+        <p>Because this model is fitted on the full history, the regime it assigns to any day was estimated with knowledge of what came after. The upper band of Figure 1 is a retrospective description of the market, not a signal that could have been traded. Section 3 removes that advantage.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================= 3 STRATEGY & WALK-FORWARD -->
+<section class="section" id="walk-forward" aria-labelledby="wf-title">
+  <div class="wrap">
+    <header class="section-head">
+      <span class="section-num">3</span>
+      <h2 id="wf-title">From regimes to a strategy, without look-ahead</h2>
+    </header>
+    <div class="prose">
+      <div class="row">
+        <div class="main">
+          <h3>The trading rule</h3>
+          <p>The rule is deliberately simple: hold SPY with all the capital when the current regime is calm, and hold cash otherwise. There is no leverage and no shorting, and cash earns nothing. Because the labels can swap from one fit to the next, the rule never refers to “state 0”; it refers to whichever state is calm according to the data the model was trained on.</p>
+          <h3>A first, biased backtest</h3>
+          <p>The preliminary backtest applies the rule to the in-sample states with a one-day lag, so that a position decided at the close of day <i class="var">t</i> earns the return of day <i class="var">t</i>+1, and without transaction costs. The lag avoids using a day’s signal to earn that same day’s return, but it cannot fix the deeper problem: the states themselves were estimated with the whole history.</p>
+          <p>Even with that advantage, the strategy earned less than Buy &amp; Hold over the full sample (CAGR 11.5% against 15.0%), but with much smaller swings: a Sharpe ratio of 1.11 against 0.74 and a maximum drawdown of −10.4% against −33.7%. The notebook treats these figures as optimistic, not as realistic performance.</p>
+        </div>
+        <aside class="note" aria-label="Position rule">
+          <p class="eq"><i>w<sub>t</sub></i> = 1 if <i>S<sub>t</sub></i> = calm, else 0</p>
+          <p>In-sample strategy return on day <i>t</i>: <i>r<sub>t</sub></i> · <i>w</i><sub><i>t</i>−1</sub>, with no costs. The strategy is invested on 68.2% of the days.</p>
+        </aside>
+      </div>
+
+      <div class="row">
+        <div class="main">
+          <h3>Walk-forward design</h3>
+          <p>The walk-forward backtest repeats the analysis the way it could have been run in real time: at every point, the model only knows the past.</p>
+          <ol class="steps">
+            <li><strong>Warm-up.</strong> The first 756 trading days, about three years up to 22 Oct 2020, are used only for training. With less data, each state’s mean vector and 2×2 covariance matrix, and the transition probabilities, would be estimated with high variance. The strategy holds cash throughout.</li>
+            <li><strong>Monthly refits.</strong> The model is refitted every 21 trading days on an expanding window of all the observations before the refit date: 71 refits, from 23 Oct 2020 to 2 Sep 2026. Daily refits would be computationally heavy and would add noise; yearly refits would leave the model on stale parameters.</li>
+            <li><strong>No leakage in preprocessing.</strong> Each refit standardizes the features with the mean and standard deviation of its own training window.</li>
+            <li><strong>Dynamic relabeling.</strong> At each refit, the calm state is identified again on the training data, as the state with the higher mean return, and checked to have the lower mean volatility.</li>
+            <li><strong>Causal decoding.</strong> For each day <i class="var">t</i> until the next refit, the regime is the last element of the Viterbi path computed on all observations up to <i class="var">t</i>. Decoding a whole month at once would let later days revise the earlier ones.</li>
+          </ol>
+        </div>
+        <aside class="note" aria-label="Walk-forward parameters">
+          <span class="note-title">Parameters</span>
+          <p>Warm-up 756 days. Refit every 21 days. Up to 200 EM iterations per refit. Cost 0.10% per buy or sell.</p>
+          <p>EM used between 13 and 39 iterations per refit (median 24). No refit reached the limit, and none stopped on a decreasing log-likelihood.</p>
+        </aside>
+      </div>
+
+      <figure class="figure" aria-labelledby="fig5-cap">
+        <div class="chart" id="chart-refits">
+          <noscript><p class="chart-empty">This interactive figure needs JavaScript.</p></noscript>
+        </div>
+        <div class="explorer-controls">
+          <button class="step-btn" type="button" id="refit-prev" aria-label="Previous refit">Previous</button>
+          <label class="visually-hidden" for="refit-slider">Refit number</label>
+          <input class="slider" type="range" id="refit-slider" min="1" max="71" step="1" value="18">
+          <button class="step-btn" type="button" id="refit-next" aria-label="Next refit">Next</button>
+        </div>
+        <dl class="readout" id="refit-readout" aria-live="polite">
+          <div><dt>Refit</dt><dd id="ro-refit">–</dd></div>
+          <div><dt>Trained on</dt><dd id="ro-train">–</dd></div>
+          <div><dt>Decodes</dt><dd id="ro-decode">–</dd></div>
+          <div><dt>Raw label of the calm state</dt><dd id="ro-label">–</dd></div>
+          <div><dt>EM iterations</dt><dd id="ro-em">–</dd></div>
+        </dl>
+        <figcaption class="figcaption" id="fig5-cap"><b>Figure 5.</b> The walk-forward schedule. Step through the 71 refits: each model is trained on all the data before its refit date and decodes, one day at a time, the 21 trading days that follow. The lower strip shows which raw label, 0 or 1, the calm state received at each refit.</figcaption>
+      </figure>
+
+      <div class="row">
+        <div class="main">
+          <p>Label switching is not a theoretical concern here. The raw label of the calm state changed 16 times across the 71 refits. With a hard-coded “state 0”, the strategy would have silently invested in the volatile regime after each switch, with no visible error. With dynamic relabeling, the state chosen as calm had both the higher mean return and the lower volatility at every refit.</p>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="main">
+          <h3>Execution timing and costs</h3>
+          <p>Signals are computed from closing prices, so a decision taken with the close of day <i class="var">t</i> cannot be traded before that close is known. The notebook brackets execution with two assumptions:</p>
+          <ul class="plain-list">
+            <li><strong><code>shift(2)</code>, the main backtest.</strong> The order is executed at the close of day <i class="var">t</i>+1, and the first return earned with the new position is that of day <i class="var">t</i>+2.</li>
+            <li><strong><code>shift(1)</code>, a sensitivity check.</strong> The order is executed at the same close of day <i class="var">t</i> that produced the signal. This is optimistic, because it requires trading at a price that is only known at that moment.</li>
+          </ul>
+          <p style="margin-top:1.1em">Both versions pay 0.10% of capital on every buy or sell, charged on the day the executed position changes. Over the walk-forward period, each version changed position 29 times.</p>
+        </div>
+        <aside class="note" aria-label="Cost formula">
+          <p class="eq">ln(1 − <i>c</i> · |Δ<i>w<sub>t</sub></i>|), <i>c</i> = 0.001</p>
+          <p>Costs enter as log returns on the execution day, so they compound with the rest of the series.</p>
+        </aside>
+      </div>
+
+      <figure class="figure" aria-labelledby="fig6-cap">
+        <div class="timing" role="img" aria-label="Timeline. A signal is computed at the close of day t. Under shift(1), the order and its cost occur at the close of day t, and the new position earns the returns of day t plus 1 and day t plus 2. Under shift(2), the old position is still held during day t plus 1, the order and its cost occur at the close of day t plus 1, and the new position first earns the return of day t plus 2.">
+          <span></span>
+          <span class="t-head close"><span class="long">Close of<br>day </span><span class="short">Close<br></span><i>t</i></span>
+          <span class="t-head">Day <i>t</i>+1<br>return <i>r</i><sub><i>t</i>+1</sub></span>
+          <span class="t-head close"><span class="long">Close of<br>day </span><span class="short">Close<br></span><i>t</i>+1</span>
+          <span class="t-head">Day <i>t</i>+2<br>return <i>r</i><sub><i>t</i>+2</sub></span>
+
+          <span class="t-label">Signal</span>
+          <span class="t-cell t-close"><span class="t-marker c-market" title="Signal computed"></span></span>
+          <span class="t-cell"><span class="muted">regime decoded with data up to <i>t</i></span></span>
+          <span class="t-cell t-close"></span>
+          <span class="t-cell"></span>
+
+          <span class="t-label">shift(1)<small>sensitivity</small></span>
+          <span class="t-cell t-close"><span class="t-marker diamond c-wf1" title="Order and cost"></span></span>
+          <span class="t-cell"><span class="t-bar earn-wf1"><span>new position earns <i>r</i><sub><i>t</i>+1</sub></span></span></span>
+          <span class="t-cell t-close"></span>
+          <span class="t-cell"><span class="t-bar earn-wf1"><span>earns <i>r</i><sub><i>t</i>+2</sub></span></span></span>
+
+          <span class="t-label">shift(2)<small>main</small></span>
+          <span class="t-cell t-close"></span>
+          <span class="t-cell"><span class="t-bar old"><span>old position still held</span></span></span>
+          <span class="t-cell t-close"><span class="t-marker diamond c-calm" title="Order and cost"></span></span>
+          <span class="t-cell"><span class="t-bar earn-wf2"><span>new position earns <i>r</i><sub><i>t</i>+2</sub></span></span></span>
+        </div>
+        <ul class="legend timing-legend" aria-hidden="true">
+          <li><span class="t-marker c-market" style="width:.7rem;height:.7rem"></span>Signal at the close</li>
+          <li><span class="t-marker diamond" style="width:.6rem;height:.6rem;color:var(--ink-2)"></span>Order executed, 0.10% cost charged</li>
+        </ul>
+        <figcaption class="figcaption" id="fig6-cap"><b>Figure 6.</b> When a signal generated at the close of day <i>t</i> starts to earn returns under each assumption. A return <i>r</i><sub><i>t</i>+1</sub> runs from the close of day <i>t</i> to the close of day <i>t</i>+1.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================= 4 RESULTS -->
+<section class="section" id="results" aria-labelledby="results-title">
+  <div class="wrap">
+    <header class="section-head">
+      <span class="section-num">4</span>
+      <h2 id="results-title">Results</h2>
+    </header>
+    <div class="prose">
+      <div class="row">
+        <div class="main">
+          <p>The four series are compared over the same window, from the first day the walk-forward strategy could hold a position to the end of the data: 26 October 2020 to 22 September 2026, 1,483 trading days, about 5.9 years. Every series is rebased to 1.0 at the close of 23 October 2020, the end of the warm-up, so the comparison is not distorted by three years in which the walk-forward strategy could not invest.</p>
+        </div>
+        <aside class="note" aria-label="Metric definitions">
+          <span class="note-title">Definitions</span>
+          <p>CAGR uses 252 trading days per year. The Sharpe ratio is the annualized mean of the daily log returns divided by their annualized standard deviation, with a zero risk-free rate. Maximum drawdown is measured from the starting capital of 1.0.</p>
+        </aside>
+      </div>
+
+      <div class="fig-controls results-controls" role="group" aria-label="Results window">
+        <div>
+          <span class="control-label" id="window-label">Window</span>
+          <span class="segmented" role="group" aria-labelledby="window-label">
+            <button type="button" data-window="rebased" aria-pressed="true">Common window</button>
+            <button type="button" data-window="full" aria-pressed="false">Full sample</button>
+          </span>
+        </div>
+      </div>
+
+      <figure class="figure" aria-labelledby="fig7-cap">
+        <div class="metric-bars" id="chart-metrics">
+          <noscript><p class="chart-empty">This figure needs JavaScript. The same values are in Table 3.</p></noscript>
+        </div>
+        <figcaption class="figcaption" id="fig7-cap"><b>Figure 7.</b> The four strategies on each metric, <span data-window-text="rebased">common window, 26 Oct 2020 to 22 Sep 2026</span><span data-window-text="full" hidden>full sample, 23 Oct 2017 to 22 Sep 2026</span>. Maximum drawdown is drawn by its depth. Walk-forward figures are net of transaction costs; the hatched bars are the in-sample strategy, which uses look-ahead. The window selector also switches Table 3 and Figure 8.</figcaption>
+      </figure>
+
+      <div class="pair wide-left" style="margin-top:3.25rem">
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Table 3, scrollable">
+          <table class="data-table stack" id="metrics-table">
+            <caption><b>Table 3.</b> <span data-window-text="rebased">Performance over the common window, 26 Oct 2020 to 22 Sep 2026.</span><span data-window-text="full" hidden>Performance over the full sample, 23 Oct 2017 to 22 Sep 2026. The walk-forward CAGR is computed over about nine years, including three years of warm-up at zero return, which mechanically lowers it; the common window is the like-for-like comparison.</span> Walk-forward figures are net of 0.10% transaction costs.</caption>
+            <thead>
+              <tr>
+                <th scope="col">Strategy</th>
+                <th scope="col">Total return</th>
+                <th scope="col">CAGR</th>
+                <th scope="col">Annualized volatility</th>
+                <th scope="col">Sharpe ratio</th>
+                <th scope="col">Max drawdown</th>
+              </tr>
+            </thead>
+            <tbody data-window-body="rebased">
+              <tr><th scope="row"><span class="th-key"><span class="line-key c-market" aria-hidden="true"></span>Buy &amp; Hold</span></th><td data-label="Total return">142.5%</td><td data-label="CAGR">16.2%</td><td data-label="Annualized volatility">16.6%</td><td data-label="Sharpe ratio">0.90</td><td data-label="Max drawdown">−24.5%</td></tr>
+              <tr><th scope="row"><span class="th-key"><span class="line-key dashed c-naive" aria-hidden="true"></span>In-sample (look-ahead)</span></th><td data-label="Total return">97.8%</td><td data-label="CAGR">12.3%</td><td data-label="Annualized volatility">10.5%</td><td data-label="Sharpe ratio">1.11</td><td data-label="Max drawdown">−10.4%</td></tr>
+              <tr><th scope="row"><span class="th-key"><span class="line-key c-wf1" aria-hidden="true"></span>Walk-forward shift(1)</span></th><td data-label="Total return">66.6%</td><td data-label="CAGR">9.1%</td><td data-label="Annualized volatility">9.7%</td><td data-label="Sharpe ratio">0.89</td><td data-label="Max drawdown">−12.1%</td></tr>
+              <tr class="is-main"><th scope="row"><span class="th-key"><span class="line-key c-calm" aria-hidden="true"></span>Walk-forward shift(2)</span></th><td data-label="Total return">61.6%</td><td data-label="CAGR">8.5%</td><td data-label="Annualized volatility">9.8%</td><td data-label="Sharpe ratio">0.83</td><td data-label="Max drawdown">−14.7%</td></tr>
+            </tbody>
+            <tbody data-window-body="full" hidden>
+              <tr><th scope="row"><span class="th-key"><span class="line-key c-market" aria-hidden="true"></span>Buy &amp; Hold</span></th><td data-label="Total return">245.2%</td><td data-label="CAGR">15.0%</td><td data-label="Annualized volatility">18.9%</td><td data-label="Sharpe ratio">0.74</td><td data-label="Max drawdown">−33.7%</td></tr>
+              <tr><th scope="row"><span class="th-key"><span class="line-key dashed c-naive" aria-hidden="true"></span>In-sample (look-ahead)</span></th><td data-label="Total return">164.1%</td><td data-label="CAGR">11.5%</td><td data-label="Annualized volatility">9.8%</td><td data-label="Sharpe ratio">1.11</td><td data-label="Max drawdown">−10.4%</td></tr>
+              <tr><th scope="row"><span class="th-key"><span class="line-key c-wf1" aria-hidden="true"></span>Walk-forward shift(1)</span></th><td data-label="Total return">66.6%</td><td data-label="CAGR">5.9%</td><td data-label="Annualized volatility">7.9%</td><td data-label="Sharpe ratio">0.73</td><td data-label="Max drawdown">−12.1%</td></tr>
+              <tr class="is-main"><th scope="row"><span class="th-key"><span class="line-key c-calm" aria-hidden="true"></span>Walk-forward shift(2)</span></th><td data-label="Total return">61.6%</td><td data-label="CAGR">5.5%</td><td data-label="Annualized volatility">8.0%</td><td data-label="Sharpe ratio">0.67</td><td data-label="Max drawdown">−14.7%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figure class="figure" aria-labelledby="fig8-cap">
+          <div class="chart" id="chart-riskreturn"></div>
+          <figcaption class="figcaption" id="fig8-cap"><b>Figure 8.</b> Annualized volatility against CAGR, <span data-window-text="rebased">common window</span><span data-window-text="full" hidden>full sample</span>. The walk-forward strategies sit far to the left of Buy &amp; Hold, but also far below it.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================= 5 DISCUSSION -->
+<section class="section" id="discussion" aria-labelledby="discussion-title">
+  <div class="wrap">
+    <header class="section-head">
+      <span class="section-num">5</span>
+      <h2 id="discussion-title">What the results show</h2>
+    </header>
+    <div class="prose">
+      <div class="findings">
+        <article class="finding">
+          <span class="finding-num">Finding 1</span>
+          <h3>Less risk, not a better risk-adjusted return</h3>
+          <p>Both walk-forward versions cut annualized volatility from 16.6% to about 9.8%, and maximum drawdown from −24.5% to −14.7% with <code>shift(2)</code> or −12.1% with <code>shift(1)</code>. They also roughly halved the CAGR, to 8.5–9.1% against 16.2%, and their Sharpe ratios, 0.83 and 0.89, did not exceed Buy &amp; Hold’s 0.90. Over this period the strategy reduced risk without improving the return per unit of risk.</p>
+        </article>
+        <article class="finding">
+          <span class="finding-num">Finding 2</span>
+          <h3>One day of execution delay matters</h3>
+          <p>Moving from <code>shift(1)</code> to <code>shift(2)</code> costs about 0.6 percentage points of CAGR and 0.06 of Sharpe ratio, and deepens the maximum drawdown from −12.1% to −14.7%. The delay weighs mostly on risk, but it does not change the conclusion: under neither assumption does the strategy beat Buy &amp; Hold on Sharpe ratio.</p>
+        </article>
+        <article class="finding">
+          <span class="finding-num">Finding 3</span>
+          <h3>Look-ahead bias flatters the in-sample result</h3>
+          <p>The in-sample strategy and walk-forward <code>shift(1)</code> share the same execution timing. Going from one to the other lowers the CAGR from 12.3% to 9.1% and the Sharpe ratio from 1.11 to 0.89, a gap due to look-ahead bias and transaction costs. The in-sample Sharpe of 1.11 is the most flattering number in the notebook, and it is exactly the one that does not survive out of sample.</p>
+        </article>
+      </div>
+
+      <p class="conclusion">The main result is not a strategy that beats Buy &amp; Hold. It is an honest measure of the trade-off between return and risk, obtained with a backtest that removes look-ahead bias and accounts for execution and costs.</p>
+
+      <h3 id="limits-title">Limitations</h3>
+      <ul class="limits" aria-labelledby="limits-title">
+        <li><strong>One instrument, one period</strong>SPY from 2017 to 2026: a market dominated by a strong bull run, with the 2022 bear phase. The results may not carry over to other assets or other periods.</li>
+        <li><strong>Model assumptions</strong>Two states fixed in advance, Gaussian emissions and a first-order Markov chain. The 20-day volatility is serially dependent by construction, so the assumption that observations are independent given the regime holds only approximately.</li>
+        <li><strong>Simplified execution</strong>A fixed cost of 0.10% per trade, with no slippage and no modeling of bid–ask spreads or market impact.</li>
+        <li><strong>Idle cash and the risk-free rate</strong>Cash earns nothing, although for much of the period it would have yielded a significant return, which penalizes the strategy. The Sharpe ratio also assumes a zero risk-free rate.</li>
+        <li><strong>Overfitting and model risk</strong>The walk-forward design removes the look-ahead bias in estimating and decoding the regimes. It does not remove the risk of overfitting, model uncertainty, or the differences between a simulation and live trading.</li>
+        <li><strong>No guarantee</strong>These are historical simulations under simplifying assumptions. They are not indicative of future returns.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ======================================================= 6 CODE -->
+<section class="section" id="code" aria-labelledby="code-title">
+  <div class="wrap">
+    <header class="section-head">
+      <span class="section-num">6</span>
+      <h2 id="code-title">Implementation</h2>
+    </header>
+    <div class="prose">
+      <div class="row">
+        <div class="main">
+          <p>The analysis is a single Python notebook, written in Italian and organized in five parts: data collection, feature engineering, the HMM, the in-sample backtest and the walk-forward backtest. The three excerpts below are the places where correctness depends on details. The code is unchanged; only the comments are translated.</p>
+        </div>
+      </div>
+
+      <div class="code-stack" style="margin-top:2.25rem">
+        <div>
+          <p class="code-note">The walk-forward loop: training-only standardization, relabeling on the training data, and day-by-day causal decoding.</p>
+          <figure class="code-block">
+            <figcaption class="code-head"><strong>Walk-forward refits and causal decoding</strong><span>Notebook part 5, excerpt</span></figcaption>
+            <pre class="hl" tabindex="0"><code><span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">r</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">refit_points</span><span class="p">):</span>
+    <span class="c1"># Standardize with mean and std of the training window ONLY: using those of the</span>
+    <span class="c1"># whole series would let information from the future in (look-ahead)</span>
+    <span class="n">mu_r</span> <span class="o">=</span> <span class="n">X_raw</span><span class="p">[:</span><span class="n">r</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">sigma_r</span> <span class="o">=</span> <span class="n">X_raw</span><span class="p">[:</span><span class="n">r</span><span class="p">]</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">train_X</span> <span class="o">=</span> <span class="p">(</span><span class="n">X_raw</span><span class="p">[:</span><span class="n">r</span><span class="p">]</span> <span class="o">-</span> <span class="n">mu_r</span><span class="p">)</span> <span class="o">/</span> <span class="n">sigma_r</span>   <span class="c1"># PAST ONLY</span>
+    <span class="n">train_returns</span> <span class="o">=</span> <span class="n">features</span><span class="p">[</span><span class="s1">'log_return'</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[:</span><span class="n">r</span><span class="p">]</span>
+    <span class="n">train_vol</span> <span class="o">=</span> <span class="n">features</span><span class="p">[</span><span class="s1">'volatility_20d'</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[:</span><span class="n">r</span><span class="p">]</span>
+
+    <span class="n">model_wf</span> <span class="o">=</span> <span class="n">GaussianHMM</span><span class="p">(</span>
+        <span class="n">n_components</span><span class="o">=</span><span class="n">N_STATES</span><span class="p">,</span>
+        <span class="n">covariance_type</span><span class="o">=</span><span class="s1">'full'</span><span class="p">,</span>
+        <span class="n">n_iter</span><span class="o">=</span><span class="n">N_ITER_WF</span><span class="p">,</span>
+        <span class="n">random_state</span><span class="o">=</span><span class="mi">42</span>
+    <span class="p">)</span>
+    <span class="n">model_wf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">train_X</span><span class="p">)</span>
+
+    <span class="c1"># ... convergence diagnostics (EM iterations, log-likelihood) omitted ...</span>
+
+    <span class="c1"># Dynamic relabeling: ONLY on this refit's training data</span>
+    <span class="n">train_states</span> <span class="o">=</span> <span class="n">model_wf</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">train_X</span><span class="p">)</span>
+    <span class="n">train_stats</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s1">'ret'</span><span class="p">:</span> <span class="n">train_returns</span><span class="p">,</span> <span class="s1">'vol'</span><span class="p">:</span> <span class="n">train_vol</span><span class="p">,</span> <span class="s1">'state'</span><span class="p">:</span> <span class="n">train_states</span><span class="p">})</span> \
+        <span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">'state'</span><span class="p">)</span><span class="o">.</span><span class="n">agg</span><span class="p">(</span><span class="n">ret_mean</span><span class="o">=</span><span class="p">(</span><span class="s1">'ret'</span><span class="p">,</span> <span class="s1">'mean'</span><span class="p">),</span> <span class="n">vol_mean</span><span class="o">=</span><span class="p">(</span><span class="s1">'vol'</span><span class="p">,</span> <span class="s1">'mean'</span><span class="p">))</span>
+
+    <span class="n">calm_state_r</span> <span class="o">=</span> <span class="n">train_stats</span><span class="p">[</span><span class="s1">'ret_mean'</span><span class="p">]</span><span class="o">.</span><span class="n">idxmax</span><span class="p">()</span>
+    <span class="n">volatile_state_r</span> <span class="o">=</span> <span class="n">train_stats</span><span class="p">[</span><span class="s1">'ret_mean'</span><span class="p">]</span><span class="o">.</span><span class="n">idxmin</span><span class="p">()</span>
+    <span class="n">consistent_r</span> <span class="o">=</span> <span class="n">train_stats</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">calm_state_r</span><span class="p">,</span> <span class="s1">'vol_mean'</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">train_stats</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">volatile_state_r</span><span class="p">,</span> <span class="s1">'vol_mean'</span><span class="p">]</span>
+
+    <span class="c1"># Window: from the current refit to the next one (or the end of the series)</span>
+    <span class="n">window_end</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">r</span> <span class="o">+</span> <span class="n">REFIT_FREQUENCY_DAYS</span><span class="p">,</span> <span class="n">n_total</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">window_end</span><span class="p">):</span>
+        <span class="n">decoded</span> <span class="o">=</span> <span class="n">model_wf</span><span class="o">.</span><span class="n">predict</span><span class="p">((</span><span class="n">X_raw</span><span class="p">[:</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">mu_r</span><span class="p">)</span> <span class="o">/</span> <span class="n">sigma_r</span><span class="p">)</span>
+        <span class="n">wf_state</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">=</span> <span class="n">decoded</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">wf_calm_state</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">=</span> <span class="n">calm_state_r</span>
+
+    <span class="c1"># ... refit log omitted ...</span></code></pre>
+          </figure>
+        </div>
+        <div>
+          <p class="code-note">Execution lag and costs: the same signal under <code>shift(2)</code> and <code>shift(1)</code>, with costs charged in log-return space.</p>
+          <figure class="code-block">
+            <figcaption class="code-head"><strong>Execution timing and transaction costs</strong><span>Notebook part 5, excerpt</span></figcaption>
+            <pre class="hl" tabindex="0"><code><span class="n">COST_PER_TRADE</span> <span class="o">=</span> <span class="mf">0.001</span>
+
+<span class="c1"># The signal is born at the close of t, the order is executed at the close of t+1</span>
+<span class="n">features_wf</span><span class="p">[</span><span class="s1">'executed_position_wf'</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">features_wf</span><span class="p">[</span><span class="s1">'position_wf'</span><span class="p">]</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+
+<span class="c1"># Identify the buys and sells actually executed</span>
+<span class="n">features_wf</span><span class="p">[</span><span class="s1">'trades_wf'</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">features_wf</span><span class="p">[</span><span class="s1">'executed_position_wf'</span><span class="p">]</span><span class="o">.</span><span class="n">diff</span><span class="p">()</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+
+<span class="c1"># Close-to-close returns accrue from the day after execution</span>
+<span class="n">gross_log_return</span> <span class="o">=</span> <span class="p">(</span><span class="n">features_wf</span><span class="p">[</span><span class="s1">'log_return'</span><span class="p">]</span> <span class="o">*</span><span class="n">features_wf</span><span class="p">[</span><span class="s1">'position_wf'</span><span class="p">]</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+
+<span class="c1"># Costs converted into log returns</span>
+<span class="n">trading_costs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span><span class="n">COST_PER_TRADE</span> <span class="o">*</span> <span class="n">features_wf</span><span class="p">[</span><span class="s1">'trades_wf'</span><span class="p">])</span>
+<span class="n">features_wf</span><span class="p">[</span><span class="s1">'strategy_log_return_wf'</span><span class="p">]</span> <span class="o">=</span> <span class="n">gross_log_return</span> <span class="o">+</span> <span class="n">trading_costs</span>
+<span class="n">features_wf</span><span class="p">[</span><span class="s1">'equity_wf'</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">features_wf</span><span class="p">[</span><span class="s1">'strategy_log_return_wf'</span><span class="p">]</span><span class="o">.</span><span class="n">cumsum</span><span class="p">())</span>
+
+<span class="c1"># --- Alternative scenario: shift(1) ---</span>
+<span class="c1"># Signal computed at the close of t and executed at the SAME close of t</span>
+<span class="n">features_wf</span><span class="p">[</span><span class="s1">'trades_wf_lag1'</span><span class="p">]</span> <span class="o">=</span> <span class="n">features_wf</span><span class="p">[</span><span class="s1">'position_wf'</span><span class="p">]</span><span class="o">.</span><span class="n">diff</span><span class="p">()</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+<span class="n">gross_log_return_lag1</span> <span class="o">=</span> <span class="n">features_wf</span><span class="p">[</span><span class="s1">'log_return'</span><span class="p">]</span> <span class="o">*</span> <span class="n">features_wf</span><span class="p">[</span><span class="s1">'position_wf'</span><span class="p">]</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="c1"># shift(1) here</span>
+<span class="n">trading_costs_lag1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="mi">1</span> <span class="o">-</span><span class="n">COST_PER_TRADE</span> <span class="o">*</span> <span class="n">features_wf</span><span class="p">[</span><span class="s1">'trades_wf_lag1'</span><span class="p">])</span></code></pre>
+          </figure>
+        </div>
+        <div>
+          <p class="code-note">The metrics used throughout the page, computed from daily log returns.</p>
+          <figure class="code-block">
+            <figcaption class="code-head"><strong>Performance metrics</strong><span>Notebook part 4</span></figcaption>
+            <pre class="hl" tabindex="0"><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_metrics</span><span class="p">(</span><span class="n">log_returns</span><span class="p">,</span> <span class="n">periods_per_year</span><span class="o">=</span><span class="mi">252</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""</span>
+<span class="sd">    Computes the metrics from the daily log returns of a series.</span>
+<span class="sd">    """</span>
+    <span class="n">equity_curve</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">log_returns</span><span class="o">.</span><span class="n">cumsum</span><span class="p">())</span>
+
+    <span class="c1"># Prepend the initial capital (1.0, before the first day) so that the</span>
+    <span class="c1"># drawdown is also measured correctly against the starting point</span>
+    <span class="n">equity_with_start</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">([</span><span class="mf">1.0</span><span class="p">]),</span> <span class="n">equity_curve</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)],</span><span class="n">ignore_index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">n_days</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">log_returns</span><span class="p">)</span>
+    <span class="n">years</span> <span class="o">=</span> <span class="n">n_days</span> <span class="o">/</span> <span class="n">periods_per_year</span>
+
+    <span class="n">total_return</span> <span class="o">=</span> <span class="n">equity_curve</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="n">cagr</span> <span class="o">=</span> <span class="n">equity_curve</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">**</span> <span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">years</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="n">ann_vol</span> <span class="o">=</span> <span class="n">log_returns</span><span class="o">.</span><span class="n">std</span><span class="p">()</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">periods_per_year</span><span class="p">)</span>
+    <span class="n">ann_log_return</span> <span class="o">=</span> <span class="n">log_returns</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span> <span class="o">*</span> <span class="n">periods_per_year</span>
+    <span class="n">sharpe</span> <span class="o">=</span> <span class="n">ann_log_return</span> <span class="o">/</span> <span class="n">ann_vol</span> <span class="k">if</span> <span class="n">ann_vol</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+    <span class="n">running_max</span> <span class="o">=</span> <span class="n">equity_with_start</span><span class="o">.</span><span class="n">cummax</span><span class="p">()</span>
+    <span class="n">drawdown</span> <span class="o">=</span> <span class="n">equity_with_start</span> <span class="o">/</span> <span class="n">running_max</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="n">max_drawdown</span> <span class="o">=</span> <span class="n">drawdown</span><span class="o">.</span><span class="n">min</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="p">{</span>
+        <span class="s1">'Rendimento cumulato totale'</span><span class="p">:</span> <span class="n">total_return</span><span class="p">,</span>
+        <span class="s1">'CAGR'</span><span class="p">:</span> <span class="n">cagr</span><span class="p">,</span>
+        <span class="s2">"Volatilita' annualizzata"</span><span class="p">:</span> <span class="n">ann_vol</span><span class="p">,</span>
+        <span class="s1">'Sharpe ratio (rf=0)'</span><span class="p">:</span> <span class="n">sharpe</span><span class="p">,</span>
+        <span class="s1">'Max drawdown'</span><span class="p">:</span> <span class="n">max_drawdown</span>
+    <span class="p">}</span></code></pre>
+          </figure>
+        </div>
+      </div>
+
+      <h3 style="margin-top:4rem">What the project exercises</h3>
+      <dl class="toolkit">
+        <div><dt>Python, pandas and NumPy</dt><dd>Time-series alignment, log-return algebra and vectorized backtesting with explicit lags.</dd></div>
+        <div><dt>hmmlearn</dt><dd>Gaussian HMM with full covariance, EM fitting, Viterbi decoding and convergence diagnostics.</dd></div>
+        <div><dt>Data handling</dt><dd>yfinance download with a fixed window, adjusted prices, checks for gaps and missing values, Matplotlib for exploratory plots.</dd></div>
+        <div><dt>Statistical modeling</dt><dd>Feature engineering, standardization without leakage, and interpretation of latent states.</dd></div>
+        <div><dt>Backtesting methodology</dt><dd>Walk-forward refits on an expanding window, label-switching control, two execution assumptions and transaction costs.</dd></div>
+        <div><dt>Evaluation</dt><dd>CAGR, volatility, Sharpe ratio and drawdown on a common window, with the benchmark always in view.</dd></div>
+      </dl>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ======================================================= REPOSITORY / FOOTER -->
+<footer class="repo" id="repository" aria-labelledby="repo-title">
+  <div class="wrap">
+    <div class="repo-grid">
+      <div>
+        <h2 id="repo-title">Code and data</h2>
+        <p class="lede" style="font-size:1.125rem">Everything on this page comes from one notebook. Run it top to bottom, in Colab or locally, to reproduce every number.</p>
+        <p class="data-note">This page shows no daily prices, returns, volatility or equity curves. Its figures use only the trading dates, the regimes decoded by the models, the fitted model parameters and aggregate metrics. The notebook downloads the market data when it runs, so running it reproduces the full analysis, including the price and equity charts.</p>
+        <ul class="link-list">
+          <li><a href="https://github.com/simone2203/sp500-hmm-quant-strategy" rel="noopener">GitHub repository <span>simone2203/sp500-hmm-quant-strategy</span></a></li>
+          <li><a href="https://github.com/simone2203/sp500-hmm-quant-strategy/blob/main/sp500_hmm_quant_strategy.ipynb" rel="noopener">Notebook <span>View on GitHub</span></a></li>
+          <li><a href="https://colab.research.google.com/github/simone2203/sp500-hmm-quant-strategy/blob/main/sp500_hmm_quant_strategy.ipynb" rel="noopener">Notebook in Google Colab <span>Run it in the browser</span></a></li>
+          <li><a href="https://github.com/simone2203/sp500-hmm-quant-strategy#readme" rel="noopener">README <span>Project overview</span></a></li>
+          <li><a href="https://github.com/simone2203/sp500-hmm-quant-strategy/blob/main/docs/data/export_site_data.py" rel="noopener">Data export script <span>How this page’s data is produced</span></a></li>
+        </ul>
+      </div>
+      <div class="disclaimer">
+        <h3>Disclaimer</h3>
+        <p>This is an independent project developed for educational, research and portfolio purposes. Nothing on this page is financial advice, an investment recommendation, or an offer or solicitation to buy or sell any financial instrument.</p>
+        <p>All results come from backtests on historical data under simplifying assumptions and are not indicative of future returns. The analysis uses data from Yahoo Finance, obtained through yfinance, which may contain errors, omissions or later revisions. Code and analyses are provided as is, without warranties of any kind; anyone who uses them does so at their own risk.</p>
+        <p>The project is not affiliated with, or endorsed by, Yahoo or State Street Global Advisors. SPY is referenced only for identification and analysis.</p>
+        <p class="ai-note">The project was carried out independently; AI tools (Claude and ChatGPT) were used only for help with syntax, code review and editing of the text. This website was designed and built with Claude from the notebook’s results.</p>
+      </div>
+    </div>
+    <div class="footer-meta">
+      <span>© 2026 Simone Nardi</span>
+      <span>Data: SPY daily, 25 Sep 2017 to 22 Sep 2026</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
